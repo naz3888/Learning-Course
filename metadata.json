@@ -1,0 +1,8 @@
+{
+  "name": "Learning Portal",
+  "description": "Portal pembelajaran interaktif Kecerdasan Buatan (AI) lengkap dengan kursus video mengikut tahap, modul amali, makmal prompt, kuiz, dan sijil pengiktirafan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
