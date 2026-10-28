@@ -328,16 +328,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
           </div>
 
-          {/* Discreet Admin Portal Access Link */}
-          <div className="pt-3 border-t border-white/10 text-center">
+          {/* Hidden Admin Portal Access Link — press Ctrl+Shift+A to reveal */}
+          <div className="pt-3 border-t border-white/10 text-center group/admin-link">
             <button
               type="button"
               onClick={handleAdminAuth}
               disabled={isLoading}
-              className="text-[11px] font-mono text-neutral-500 hover:text-amber-400 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="text-[10px] font-mono text-neutral-600 hover:text-amber-400 opacity-0 group-hover/admin-link:opacity-100 inline-flex items-center gap-1 transition-all duration-300 cursor-pointer"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-neutral-500 hover:text-amber-400" />
-              <span>Akses Portal Pentadbir (Admin Login)</span>
+              <ShieldCheck className="w-3 h-3 text-neutral-600 group-hover/admin-link:text-amber-400" />
+              <span>Portal Pentadbir</span>
             </button>
           </div>
         </div>

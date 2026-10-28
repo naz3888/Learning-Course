@@ -261,11 +261,24 @@ export const PublicLandingGateway: React.FC<PublicLandingGatewayProps> = ({
   const [activeDemoIndex, setActiveDemoIndex] = useState(0);
 
   // Interactive Learning Course states inside MacBook Pro Mockup
-  const [activeLessonIndex, setActiveLessonIndex] = useState(1); // default to Pelajaran 2 (Formula CRTF)
+  const [activeLessonIndex, setActiveLessonIndex] = useState(1);
   const [isMacPlaying, setIsMacPlaying] = useState(true);
   const [completedLessonIds, setCompletedLessonIds] = useState<Record<string, boolean>>({
     'les-1': true
   });
+
+  // Secret admin access: press Ctrl+Shift+A to reveal the admin login button
+  const [showAdminAccess, setShowAdminAccess] = useState(false);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+        e.preventDefault();
+        setShowAdminAccess(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const toggleLessonComplete = (lessonId: string) => {
     setCompletedLessonIds((prev) => ({
@@ -323,8 +336,10 @@ export const PublicLandingGateway: React.FC<PublicLandingGatewayProps> = ({
             {/* Bilingual Toggle Button */}
             <LanguageSwitcher variant="compact" />
 
-            {onOpenAdminLogin && (
+            {onOpenAdminLogin && showAdminAccess && (
               <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.96 }}
                 onClick={onOpenAdminLogin}
@@ -1591,7 +1606,7 @@ export const PublicLandingGateway: React.FC<PublicLandingGatewayProps> = ({
           <div>
             © 2026 AKADEMI AI ONLINE. HAK CIPTA TERPELIHARA. PORTAL PEMBELAJARAN AI.
           </div>
-          {onOpenAdminLogin && (
+          {onOpenAdminLogin && showAdminAccess && (
             <button
               onClick={onOpenAdminLogin}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-amber-400 border border-white/10 hover:border-amber-400/40 rounded transition-colors cursor-pointer text-xs"
