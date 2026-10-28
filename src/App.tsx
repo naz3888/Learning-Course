@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, ShoppingCart, Crown, ShieldCheck } from 'lucide-react';
+import { Menu, ShoppingCart, Crown, ShieldCheck, Loader2 } from 'lucide-react';
 import type { AppSection } from './components/Navbar';
 import { PortalSidebar } from './components/PortalSidebar';
 import { PublicLandingGateway } from './components/PublicLandingGateway';
@@ -24,37 +24,21 @@ import { ModuleEditorModal } from './components/ModuleEditorModal';
 import { AdminDashboardSection } from './components/AdminDashboardSection';
 import { Footer } from './components/Footer';
 import { CourseLevel, Lesson, Module, UserProgress, StoreCourse, MembershipDetails } from './types';
-import { MODULES_DATA, LEVELS_CONFIG, STORE_COURSES } from './data/coursesData';
+import { LEVELS_CONFIG } from './data/coursesData';
 import { useLanguage } from './context/LanguageContext';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
+import { useSupabaseCourses, useSupabaseModules, useSupabaseProgress } from './hooks/useSupabaseData';
 
-const STORAGE_KEY = 'akademi_ai_user_progress_v2';
 const USER_STORAGE_KEY = 'akademi_ai_auth_user_v1';
 const CART_STORAGE_KEY = 'akademi_ai_cart_items_v1';
-const COURSES_STORAGE_KEY = 'akademi_ai_custom_courses_v1';
-const MODULES_STORAGE_KEY = 'akademi_ai_custom_modules_v1';
 const ADMIN_AUTH_KEY = 'akademi_ai_admin_logged_in_v1';
 
 export default function App() {
   const { t, isEn } = useLanguage();
-  const [progress, setProgress] = useState<UserProgress>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error('Error reading localStorage', e);
-    }
-    return {
-      completedLessons: ['les-1-1'],
-      completedQuizzes: {},
-      notes: {},
-      userName: 'Ahmad Faiz bin Zulkifli',
-      selectedLevel: 'level_1',
-      enrolledCourses: ['course-tahap-1', 'course-prompt-crtf']
-    };
-  });
+
+  const { data: courses, loading: coursesLoading, saveCourse: dbSaveCourse, deleteCourse: dbDeleteCourse, resetCourses: dbResetCourses } = useSupabaseCourses();
+  const { data: modules, loading: modulesLoading, saveModule: dbSaveModule, deleteModule: dbDeleteModule, resetModules: dbResetModules } = useSupabaseModules();
+  const { data: progress, loading: progressLoading, updateProgress } = useSupabaseProgress();
 
   const [currentUser, setCurrentUser] = useState<{ name: string; email: string } | null>(() => {
     try {
@@ -69,12 +53,12 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'signup'>('login');
 
-  const [selectedLevel, setSelectedLevel] = useState<CourseLevel>(progress.selectedLevel || 'level_1');
+  const [selectedLevel, setSelectedLevel] = useState<CourseLevel>('level_1');
   const [activeTab, setActiveTab] = useState<AppSection>('store');
   const [selectedStoreCourse, setSelectedStoreCourse] = useState<StoreCourse | null>(null);
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState<boolean>(false);
 
-  // Cart / Basket State with localStorage persistence
+  // Cart / Basket State (kept in localStorage — ephemeral session data)
   const [cartCourseIds, setCartCourseIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(CART_STORAGE_KEY);
@@ -82,45 +66,18 @@ export default function App() {
     } catch (e) {
       console.error('Error reading cart from localStorage', e);
     }
-    return ['course-lora-finetuning']; // 1 item demo so users immediately see the cart in action
+    return ['course-lora-finetuning'];
   });
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
-  const [activePromoCode, setActivePromoCode] = useState<string>(() => {
-    try {
-      const isClaimed = localStorage.getItem('akademi_ai_first_user_voucher_claimed_v1') === 'true';
-      return isClaimed ? 'FIRSTUSER50' : '';
-    } catch {
-      return '';
-    }
-  });
+  const [activePromoCode, setActivePromoCode] = useState<string>('');
 
-  const [isVoucherUsed, setIsVoucherUsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('akademi_ai_voucher_used_v1') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [isVoucherUsed, setIsVoucherUsed] = useState<boolean>(false);
 
   const [isMembershipModalOpen, setIsMembershipModalOpen] = useState<boolean>(false);
-  const isVipMember = Boolean(progress.membership?.isActive && progress.membership.status === 'active');
+  const isVipMember = Boolean(progress?.membership?.isActive && progress.membership.status === 'active');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
 
-  // Custom courses with localStorage persistence
-  const [courses, setCourses] = useState<StoreCourse[]>(() => {
-    try {
-      const saved = localStorage.getItem(COURSES_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error('Error reading custom courses from localStorage', e);
-    }
-    return STORE_COURSES;
-  });
-
-  // Admin Authentication State with localStorage persistence - strictly tied to admin user
+  // Admin Authentication State (kept in localStorage — session-only)
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     try {
       const savedUser = localStorage.getItem(USER_STORAGE_KEY);
@@ -197,106 +154,48 @@ export default function App() {
   };
 
   const handleAddCourse = (newCourse: StoreCourse) => {
-    setCourses(prev => {
-      const updated = [newCourse, ...prev];
-      try {
-        localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    dbSaveCourse(newCourse);
   };
 
   const handleUpdateCourse = (updatedCourse: StoreCourse) => {
-    setCourses(prev => {
-      const updated = prev.map(c => c.id === updatedCourse.id ? updatedCourse : c);
-      try {
-        localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    dbSaveCourse(updatedCourse);
   };
 
   const handleDeleteCourse = (courseId: string) => {
-    setCourses(prev => {
-      const updated = prev.filter(c => c.id !== courseId);
-      try {
-        localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    dbDeleteCourse(courseId);
   };
 
   const handleResetCoursesToDefault = () => {
-    setCourses(STORE_COURSES);
-    try {
-      localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(STORE_COURSES));
-    } catch (e) {}
+    dbResetCourses();
   };
 
   const handleSubscribeSuccess = (membershipDetails: MembershipDetails) => {
-    setProgress(prev => {
-      const allCourseIds = courses.map(c => c.id);
+    if (!courses || !progress) return;
+    const allCourseIds = courses.map(c => c.id);
+    updateProgress(prev => {
       const updatedEnrolled = Array.from(new Set([...(prev.enrolledCourses || []), ...allCourseIds]));
-      const updated: UserProgress = {
+      return {
         ...prev,
         membership: membershipDetails,
         enrolledCourses: updatedEnrolled
       };
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
     });
   };
 
   const handleCancelMembership = () => {
-    setProgress(prev => {
-      const updated: UserProgress = {
-        ...prev,
-        membership: prev.membership ? { ...prev.membership, isActive: false, status: 'cancelled' } : undefined
-      };
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    updateProgress(prev => ({
+      ...prev,
+      membership: prev.membership ? { ...prev.membership, isActive: false, status: 'cancelled' } : undefined
+    }));
   };
-
-  // Dynamic syllabus modules with localStorage persistence
-  const [modules, setModules] = useState<Module[]>(() => {
-    try {
-      const saved = localStorage.getItem(MODULES_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error('Error reading custom modules from localStorage', e);
-    }
-    return MODULES_DATA;
-  });
 
   const [isModuleEditorOpen, setIsModuleEditorOpen] = useState<boolean>(false);
   const [selectedModuleForEdit, setSelectedModuleForEdit] = useState<Module | null>(null);
 
-  const handleSaveModule = (savedModule: Module, isNew: boolean) => {
-    setModules(prev => {
-      let updated: Module[];
-      if (isNew) {
-        updated = [...prev, savedModule];
-      } else {
-        updated = prev.map(m => m.id === savedModule.id ? savedModule : m);
-      }
-      try {
-        localStorage.setItem(MODULES_STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Error saving modules to storage', e);
-      }
-      return updated;
-    });
+  const handleSaveModule = (savedModule: Module, _isNew: boolean) => {
+    dbSaveModule(savedModule);
 
-    // If the currently selected lesson was part of this module, update selectedLesson
-    const updatedLesson = savedModule.lessons.find(l => l.id === selectedLesson.id);
+    const updatedLesson = savedModule.lessons.find(l => l.id === selectedLesson?.id);
     if (updatedLesson) {
       setSelectedLesson(updatedLesson);
     } else if (savedModule.lessons.length > 0 && selectedModuleForEdit?.id === savedModule.id) {
@@ -305,15 +204,10 @@ export default function App() {
   };
 
   const handleDeleteModule = (moduleId: string) => {
-    setModules(prev => {
-      const updated = prev.filter(m => m.id !== moduleId);
-      try {
-        localStorage.setItem(MODULES_STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Error saving modules after deletion', e);
-      }
+    dbDeleteModule(moduleId);
 
-      // If the currently selected lesson was inside the deleted module, fallback
+    if (modules) {
+      const updated = modules.filter(m => m.id !== moduleId);
       const remainingLevelLessons = updated.filter(m => m.level === selectedLevel).flatMap(m => m.lessons);
       if (remainingLevelLessons.length > 0) {
         setSelectedLesson(remainingLevelLessons[0]);
@@ -321,25 +215,18 @@ export default function App() {
         const anyLesson = updated.flatMap(m => m.lessons)[0];
         if (anyLesson) setSelectedLesson(anyLesson);
       }
-
-      return updated;
-    });
+    }
   };
 
   const handleResetModulesToDefault = () => {
-    setModules(MODULES_DATA);
-    try {
-      localStorage.setItem(MODULES_STORAGE_KEY, JSON.stringify(MODULES_DATA));
-    } catch (e) {}
+    dbResetModules();
   };
 
-  const currentModules = modules.filter(m => m.level === selectedLevel);
-  const allLessons = modules.flatMap(m => m.lessons);
+  const currentModules = (modules || []).filter(m => m.level === selectedLevel);
+  const allLessons = (modules || []).flatMap(m => m.lessons);
   const currentLevelLessons = currentModules.flatMap(m => m.lessons);
 
-  const [selectedLesson, setSelectedLesson] = useState<Lesson>(() => {
-    return currentLevelLessons[0] || modules[0]?.lessons[0] || MODULES_DATA[0].lessons[0];
-  });
+  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
 
   const [isQuizOpen, setIsQuizOpen] = useState<boolean>(false);
   const [quizLevel, setQuizLevel] = useState<CourseLevel>('level_1');
@@ -347,19 +234,20 @@ export default function App() {
   const [isGlossaryOpen, setIsGlossaryOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        ...progress,
-        selectedLevel
-      }));
-    } catch (e) {
-      console.error('Error saving progress', e);
+    if (progress) {
+      setSelectedLevel(progress.selectedLevel || 'level_1');
     }
-  }, [progress, selectedLevel]);
+  }, [progress]);
+
+  useEffect(() => {
+    if (!selectedLesson && currentLevelLessons.length > 0) {
+      setSelectedLesson(currentLevelLessons[0]);
+    }
+  }, [selectedLesson, currentLevelLessons]);
 
   const handleSelectLevel = (level: CourseLevel) => {
     setSelectedLevel(level);
-    const newLevelModules = modules.filter(m => m.level === level);
+    const newLevelModules = (modules || []).filter(m => m.level === level);
     const newLevelLessons = newLevelModules.flatMap(m => m.lessons);
     if (newLevelLessons.length > 0) {
       setSelectedLesson(newLevelLessons[0]);
@@ -368,7 +256,7 @@ export default function App() {
 
   const handleToggleComplete = (lessonId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    setProgress(prev => {
+    updateProgress(prev => {
       const exists = prev.completedLessons.includes(lessonId);
       const updated = exists
         ? prev.completedLessons.filter(id => id !== lessonId)
@@ -378,21 +266,21 @@ export default function App() {
   };
 
   const handleSaveNote = (lessonId: string, noteText: string) => {
-    setProgress(prev => ({
+    updateProgress(prev => ({
       ...prev,
       notes: { ...prev.notes, [lessonId]: noteText }
     }));
   };
 
   const handleSaveQuizScore = (level: CourseLevel, score: number) => {
-    setProgress(prev => ({
+    updateProgress(prev => ({
       ...prev,
       completedQuizzes: { ...prev.completedQuizzes, [level]: score }
     }));
   };
 
   const handleSaveUserName = (name: string) => {
-    setProgress(prev => ({
+    updateProgress(prev => ({
       ...prev,
       userName: name
     }));
@@ -403,14 +291,14 @@ export default function App() {
     setIsQuizOpen(true);
   };
 
-  const currentIndexInLevel = currentLevelLessons.findIndex(l => l.id === selectedLesson.id);
+  const currentIndexInLevel = selectedLesson ? currentLevelLessons.findIndex(l => l.id === selectedLesson.id) : -1;
   const prevLesson = currentIndexInLevel > 0 ? currentLevelLessons[currentIndexInLevel - 1] : undefined;
   const nextLesson = currentIndexInLevel < currentLevelLessons.length - 1 ? currentLevelLessons[currentIndexInLevel + 1] : undefined;
 
   const handlePrevLesson = prevLesson ? () => setSelectedLesson(prevLesson) : undefined;
   const handleNextLesson = nextLesson ? () => setSelectedLesson(nextLesson) : undefined;
 
-  const currentModule = currentModules.find(m => m.lessons.some(l => l.id === selectedLesson.id)) || currentModules[0];
+  const currentModule = selectedLesson ? (currentModules.find(m => m.lessons.some(l => l.id === selectedLesson.id)) || currentModules[0]) : currentModules[0];
 
   const handleOpenStorePurchaseModal = (course: StoreCourse) => {
     setSelectedStoreCourse(course);
@@ -418,7 +306,7 @@ export default function App() {
   };
 
   const handleEnrollSuccess = (courseId: string) => {
-    setProgress(prev => {
+    updateProgress(prev => {
       const current = prev.enrolledCourses || ['course-tahap-1', 'course-prompt-crtf'];
       if (!current.includes(courseId)) {
         return { ...prev, enrolledCourses: [...current, courseId] };
@@ -476,7 +364,7 @@ export default function App() {
       }
     }
     setCurrentUser(user);
-    setProgress(prev => ({ ...prev, userName: user.name }));
+    updateProgress(prev => ({ ...prev, userName: user.name }));
     try {
       localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
     } catch (e) {}
@@ -526,21 +414,30 @@ export default function App() {
   };
 
   const handleCheckoutSuccess = (courseIds: string[]) => {
-    setProgress(prev => {
+    updateProgress(prev => {
       const current = prev.enrolledCourses || ['course-tahap-1', 'course-prompt-crtf'];
       const updated = Array.from(new Set([...current, ...courseIds]));
       return { ...prev, enrolledCourses: updated };
     });
     setIsVoucherUsed(true);
-    try {
-      localStorage.setItem('akademi_ai_voucher_used_v1', 'true');
-    } catch (e) {}
   };
 
-  const cartCourses = courses.filter(c => cartCourseIds.includes(c.id));
+  const cartCourses = (courses || []).filter(c => cartCourseIds.includes(c.id));
 
-  const completedCountTotal = allLessons.filter(l => progress.completedLessons.includes(l.id)).length;
-  const completedCountInLevel = currentLevelLessons.filter(l => progress.completedLessons.includes(l.id)).length;
+  const completedCountTotal = allLessons.filter(l => progress?.completedLessons.includes(l.id) ?? false).length;
+  const completedCountInLevel = currentLevelLessons.filter(l => progress?.completedLessons.includes(l.id) ?? false).length;
+
+  // Loading state while data is fetched from Supabase
+  if (coursesLoading || modulesLoading || progressLoading || !courses || !modules || !progress) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-10 h-10 text-amber-400 animate-spin" />
+          <p className="text-neutral-400 font-sans text-sm">Memuatkan data pembelajaran...</p>
+        </div>
+      </div>
+    );
+  }
 
   // UNVERIFIED / GUEST STATE: Show Public Landing Gateway
   if (!currentUser) {
@@ -826,14 +723,14 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               <div className="lg:col-span-8 space-y-4">
                 <VideoPlayerView
-                  lesson={selectedLesson}
+                  lesson={selectedLesson!}
                   levelBadge={LEVELS_CONFIG[selectedLevel].badge}
                   moduleTitle={currentModule?.title || 'Modul Pembelajaran'}
-                  isCompleted={progress.completedLessons.includes(selectedLesson.id)}
+                  isCompleted={selectedLesson ? progress.completedLessons.includes(selectedLesson.id) : false}
                   onToggleComplete={handleToggleComplete}
                   onPrevLesson={handlePrevLesson}
                   onNextLesson={handleNextLesson}
-                  savedNote={progress.notes[selectedLesson.id] || ''}
+                  savedNote={selectedLesson ? (progress.notes[selectedLesson.id] || '') : ''}
                   onSaveNote={handleSaveNote}
                 />
               </div>
@@ -871,8 +768,8 @@ export default function App() {
         {activeTab === 'chatclub' && (
           <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12">
             <ChatClubForum
-              currentLessonId={selectedLesson.id}
-              currentLessonTitle={selectedLesson.title}
+              currentLessonId={selectedLesson?.id || ''}
+              currentLessonTitle={selectedLesson?.title || ''}
               userName={progress.userName}
             />
           </div>
@@ -1012,9 +909,6 @@ export default function App() {
           isUsed={isVoucherUsed}
           onMarkAsUsed={() => {
             setIsVoucherUsed(true);
-            try {
-              localStorage.setItem('akademi_ai_voucher_used_v1', 'true');
-            } catch (e) {}
           }}
         />
       )}
