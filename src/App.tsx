@@ -28,6 +28,7 @@ import { LEVELS_CONFIG } from './data/coursesData';
 import { useLanguage } from './context/LanguageContext';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { useSupabaseCourses, useSupabaseModules, useSupabaseProgress } from './hooks/useSupabaseData';
+import { supabase } from './lib/supabase';
 
 const USER_STORAGE_KEY = 'akademi_ai_auth_user_v1';
 const CART_STORAGE_KEY = 'akademi_ai_cart_items_v1';
@@ -119,27 +120,74 @@ export default function App() {
 
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
 
-  const handleAdminLogin = (email: string, pass: string): boolean => {
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPass = pass.trim();
-    if (
-      (cleanEmail === 'admin@akademiai.my' && cleanPass === 'admin123') ||
-      (cleanEmail.includes('admin') && cleanPass === 'admin123')
-    ) {
-      setIsAdminLoggedIn(true);
-      const adminUser = { name: 'Pentadbir Akademi AI (Admin)', email: 'admin@akademiai.my' };
-      setCurrentUser(adminUser);
-      try {
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(adminUser));
-        localStorage.setItem(ADMIN_AUTH_KEY, 'true');
-      } catch (e) {}
-      setActiveTab('admin');
-      return true;
+  // Restore admin session from Supabase on initial load
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const email = session.user.email?.toLowerCase() ?? '';
+        if (email.includes('admin')) {
+          const adminUser = {
+            name: (session.user.user_metadata?.name as string) || 'Pentadbir Akademi AI',
+            email: session.user.email!,
+          };
+          setCurrentUser(adminUser);
+          setIsAdminLoggedIn(true);
+          try {
+            localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(adminUser));
+            localStorage.setItem(ADMIN_AUTH_KEY, 'true');
+          } catch (e) {}
+        }
+      }
+    })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      (async () => {
+        if (!session) {
+          // Signed out — clear admin state if it was an admin
+          if (currentUser?.email.toLowerCase().includes('admin')) {
+            setIsAdminLoggedIn(false);
+            setCurrentUser(null);
+            try {
+              localStorage.removeItem(ADMIN_AUTH_KEY);
+              localStorage.removeItem(USER_STORAGE_KEY);
+            } catch (e) {}
+            setActiveTab('store');
+          }
+        }
+      })();
+    });
+
+    return () => subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleAdminLogin = async (email: string, pass: string): Promise<boolean> => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password: pass.trim(),
+    });
+    if (error || !data.user) {
+      return false;
     }
-    return false;
+    const isAdminEmail = data.user.email?.toLowerCase().includes('admin') ?? false;
+    if (!isAdminEmail) {
+      await supabase.auth.signOut();
+      return false;
+    }
+    setIsAdminLoggedIn(true);
+    const adminUser = { name: (data.user.user_metadata?.name as string) || 'Pentadbir Akademi AI', email: data.user.email! };
+    setCurrentUser(adminUser);
+    try {
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(adminUser));
+      localStorage.setItem(ADMIN_AUTH_KEY, 'true');
+    } catch (e) {}
+    setActiveTab('admin');
+    return true;
   };
 
   const handleAdminLogout = () => {
+    supabase.auth.signOut();
     setIsAdminLoggedIn(false);
     try {
       localStorage.removeItem(ADMIN_AUTH_KEY);
@@ -371,6 +419,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    supabase.auth.signOut();
     setCurrentUser(null);
     setIsAdminLoggedIn(false);
     try {

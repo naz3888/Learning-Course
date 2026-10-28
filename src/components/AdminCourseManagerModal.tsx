@@ -34,7 +34,7 @@ interface AdminCourseManagerModalProps {
   onClose: () => void;
   courses: StoreCourse[];
   isAdminLoggedIn: boolean;
-  onAdminLogin: (email: string, pass: string) => boolean;
+  onAdminLogin: (email: string, pass: string) => Promise<boolean>;
   onAdminLogout: () => void;
   onAddCourse: (newCourse: StoreCourse) => void;
   onUpdateCourse: (updatedCourse: StoreCourse) => void;
@@ -184,8 +184,9 @@ export const AdminCourseManagerModal: React.FC<AdminCourseManagerModalProps> = (
 
   // Login form state
   const [adminEmail, setAdminEmail] = useState('admin@akademiai.my');
-  const [adminPassword, setAdminPassword] = useState('admin123');
+  const [adminPassword, setAdminPassword] = useState('AkademiAI2026!Admin');
   const [loginError, setLoginError] = useState('');
+  const [isLoginLoading, setIsLoginLoading] = useState(false);
 
   // Course list management state
   const [searchQuery, setSearchQuery] = useState('');
@@ -273,12 +274,19 @@ export const AdminCourseManagerModal: React.FC<AdminCourseManagerModalProps> = (
 
   if (!isOpen) return null;
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    const success = onAdminLogin(adminEmail.trim(), adminPassword.trim());
-    if (!success) {
-      setLoginError('Kredensial tidak sah! Sila guna admin@akademiai.my dan admin123');
+    setIsLoginLoading(true);
+    try {
+      const success = await onAdminLogin(adminEmail.trim(), adminPassword.trim());
+      if (!success) {
+        setLoginError('Kredensial tidak sah! Sila semak emel dan kata laluan pentadbir.');
+      }
+    } catch {
+      setLoginError('Ralat rangkaian. Sila cuba lagi.');
+    } finally {
+      setIsLoginLoading(false);
     }
   };
 
@@ -715,33 +723,40 @@ export const AdminCourseManagerModal: React.FC<AdminCourseManagerModalProps> = (
 
               <button
                 type="submit"
-                className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-black font-sans font-bold text-xs uppercase tracking-wider transition-all rounded shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isLoginLoading}
+                className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-black font-sans font-bold text-xs uppercase tracking-wider transition-all rounded shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span>Log Masuk Pentadbir</span>
+                <span>{isLoginLoading ? 'Sedang Log Masuk...' : 'Log Masuk Pentadbir'}</span>
               </button>
             </form>
 
-            {/* Quick Demo Helper */}
+            {/* Quick Admin Login Helper */}
             <div className="w-full p-3.5 bg-neutral-900/80 border border-white/10 rounded space-y-2">
               <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
-                <span>Kredensial Default Pentadbir:</span>
+                <span>Emel Pentadbir:</span>
                 <span className="text-amber-400 font-bold">admin@akademiai.my</span>
               </div>
               <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
-                <span>Kata Laluan Default:</span>
-                <span className="text-amber-400 font-bold">admin123</span>
+                <span>Kata Laluan:</span>
+                <span className="text-amber-400 font-bold">AkademiAI2026!Admin</span>
               </div>
               <button
                 type="button"
-                onClick={() => {
+                disabled={isLoginLoading}
+                onClick={async () => {
                   setAdminEmail('admin@akademiai.my');
-                  setAdminPassword('admin123');
-                  onAdminLogin('admin@akademiai.my', 'admin123');
+                  setAdminPassword('AkademiAI2026!Admin');
+                  setIsLoginLoading(true);
+                  try {
+                    await onAdminLogin('admin@akademiai.my', 'AkademiAI2026!Admin');
+                  } finally {
+                    setIsLoginLoading(false);
+                  }
                 }}
-                className="w-full py-2 bg-white/10 hover:bg-white/20 text-white rounded text-[11px] font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer mt-1"
+                className="w-full py-2 bg-white/10 hover:bg-white/20 text-white rounded text-[11px] font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer mt-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                ⚡ Isi &amp; Log Masuk Segera (1-Klik)
+                {isLoginLoading ? 'Sedang Log Masuk...' : '⚡ Isi & Log Masuk Segera (1-Klik)'}
               </button>
             </div>
           </div>

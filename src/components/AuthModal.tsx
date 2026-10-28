@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Mail, Lock, User, CheckCircle2, ArrowRight, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
+import { supabase } from '../lib/supabase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -29,7 +30,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMsg('');
   }, [initialMode, isOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -43,47 +44,81 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    const isEmailAdmin = email.trim().toLowerCase() === 'admin@akademiai.my' || email.trim().toLowerCase().includes('admin');
-    if (isEmailAdmin && password.trim() !== 'admin123') {
-      setErrorMsg('Kata laluan pentadbir tidak tepat (laluan demo: admin123).');
-      return;
-    }
-
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      const userName = isEmailAdmin
-        ? 'Pentadbir Akademi AI (Admin)'
-        : (mode === 'signup' ? name : (email.split('@')[0] || 'Pelajar AI'));
-      onAuthSuccess({
-        name: userName,
-        email: email.trim().toLowerCase()
-      });
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      const isEmailAdmin = cleanEmail.includes('admin');
+
+      if (mode === 'signup') {
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: password.trim(),
+          options: { data: { name: name.trim() } },
+        });
+        if (error) {
+          setErrorMsg(error.message);
+          setIsLoading(false);
+          return;
+        }
+        const userName = name.trim();
+        onAuthSuccess({ name: userName, email: cleanEmail });
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: password.trim(),
+        });
+        if (error) {
+          setErrorMsg('Emel atau kata laluan tidak sah. Sila cuba lagi.');
+          setIsLoading(false);
+          return;
+        }
+        const userName = isEmailAdmin
+          ? 'Pentadbir Akademi AI (Admin)'
+          : (data.user?.user_metadata?.name as string) || (cleanEmail.split('@')[0] || 'Pelajar AI');
+        onAuthSuccess({ name: userName, email: cleanEmail });
+      }
+
       confetti({
         particleCount: 50,
         spread: 60,
-        origin: { y: 0.6 }
+        origin: { y: 0.6 },
       });
       onClose();
-    }, 600);
+    } catch {
+      setErrorMsg('Ralat rangkaian. Sila cuba lagi.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleAdminAuth = () => {
+  const handleAdminAuth = async () => {
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: 'admin@akademiai.my',
+        password: 'AkademiAI2026!Admin',
+      });
+      if (error || !data.user) {
+        setErrorMsg('Log masuk pentadbir gagal. Sila cuba lagi.');
+        setIsLoading(false);
+        return;
+      }
       onAuthSuccess({
-        name: 'Pentadbir Akademi AI (Admin)',
-        email: 'admin@akademiai.my'
+        name: (data.user.user_metadata?.name as string) || 'Pentadbir Akademi AI (Admin)',
+        email: data.user.email!,
       });
       confetti({
         particleCount: 50,
         spread: 60,
-        origin: { y: 0.6 }
+        origin: { y: 0.6 },
       });
       onClose();
-    }, 400);
+    } catch {
+      setErrorMsg('Ralat rangkaian. Sila cuba lagi.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleGoogleAuth = () => {
